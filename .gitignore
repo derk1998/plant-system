@@ -1,0 +1,8 @@
+build
+cmake-build-debug
+*.swp
+*.ci
+*.idea
+.cache
+compile_commands.json
+

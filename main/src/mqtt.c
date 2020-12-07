@@ -53,6 +53,7 @@ static light_states_t light_state = LIGHT_STATES_NOT_SET;
 #define MQTT_CLIENT_CONNECTED BIT0
 #define MQTT_TURN_ON_LIGHT BIT1
 #define MQTT_TURN_OFF_LIGHT BIT2
+#define MQTT_FORCE_STOP BIT3
 
 
 typedef struct
@@ -226,12 +227,32 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        //TODO: if got signal to stop then do nothing, otherwise reconnect
         xEventGroupClearBits(mqtt_event_group, MQTT_CLIENT_CONNECTED);
+
         if(send_data_handle)
         {
             vTaskDelete(send_data_handle);
             send_data_handle = NULL;
         }
+
+        EventBits_t bits = xEventGroupWaitBits(mqtt_event_group,
+                                               MQTT_FORCE_STOP,
+                                               pdFALSE,
+                                               pdFALSE,
+                                               10);
+
+        if(bits & MQTT_FORCE_STOP)
+        {
+            ESP_LOGI(TAG, "force stopping mqtt client");
+            xEventGroupClearBits(mqtt_event_group, MQTT_FORCE_STOP);
+        }
+        else
+        {
+            ESP_LOGI(TAG, "client randomly disconnected, trying to reconnect...");
+            esp_mqtt_client_start(client);
+        }
+
         break;
     case MQTT_EVENT_SUBSCRIBED:
         break;
@@ -240,13 +261,15 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
     case MQTT_EVENT_PUBLISHED:
         break;
     case MQTT_EVENT_DATA:
-        if(strcmp(event->topic, "plant/1/threshold/light") == 0)
+        if(strncmp(event->topic, "plant/1/threshold/light", event->topic_len) == 0)
         {
+            ESP_LOGI(TAG, "Setting light threshold");
             if(callbacks.received_light_threshold)
                 callbacks.received_light_threshold((uint16_t)strtol(event->data, NULL, 10));
         }
-        else if(strcmp(event->topic, "plant/1/threshold/moisture") == 0)
+        else if(strncmp(event->topic, "plant/1/threshold/moisture", event->topic_len) == 0)
         {
+            ESP_LOGI(TAG, "Setting moisture threshold");
             if(callbacks.received_moisture_threshold)
                 callbacks.received_moisture_threshold((uint16_t)strtol(event->data, NULL, 10));
         }
@@ -284,7 +307,8 @@ void start_mqtt_client(void)
         .lwt_topic = "plant/1/status",
         .lwt_msg = "\"disconnected\"",
         .lwt_qos = 1,
-        .lwt_retain = 1
+        .lwt_retain = 1,
+        .disable_auto_reconnect = false
     };
 
     if(!mqtt_event_group)
@@ -299,6 +323,7 @@ void stop_mqtt_client(void)
 {
     if(client)
     {
+        xEventGroupSetBits(mqtt_event_group, MQTT_FORCE_STOP);
         esp_mqtt_client_disconnect(client);
         esp_mqtt_client_destroy(client);
     }

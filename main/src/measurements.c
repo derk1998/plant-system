@@ -135,6 +135,8 @@ static void apply_threshold(void *param)
             if(callbacks.reached_moisture_threshold)
                 callbacks.reached_moisture_threshold(current_soil_moisture_value, moisture_threshold);
         }
+
+        vTaskDelay(100);
     }
 }
 

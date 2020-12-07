@@ -3,12 +3,14 @@
 #include <freertos/task.h>
 #include <driver/gpio.h>
 #include <esp32/rom/gpio.h>
+#include <esp_log.h>
 
 #include "measurements.h"
 #include "wifi.h"
 #include "base.h"
 #include "led.h"
 #include "mqtt.h"
+#include "http.h"
 
 static uint16_t light_value_before = 0;
 
@@ -47,6 +49,21 @@ static void on_wifi_sta_start(void* data)
     set_led_status(LED_MODE_BLINK);
 }
 
+static void on_wifi_ap_start(void* data)
+{
+    set_led_status(LED_MODE_BLINK);
+    xTaskCreate(start_webserver, "start_webserver", 4096, NULL, 5, NULL);
+}
+
+static void received_credentials(void* data)
+{
+    set_led_status(LED_MODE_FAST_BLINK);
+    stop_webserver();
+
+    //There are better ways to do it, but this is simple
+    esp_restart();
+}
+
 static void received_light_threshold(uint16_t threshold)
 {
     set_light_threshold(threshold);
@@ -83,9 +100,10 @@ static void above_light_threshold(uint16_t value, uint16_t threshold)
     {
         //difference of switching the light
         uint16_t difference = value - light_value_before;
+        ESP_LOGI("main", "difference: %d", difference);
 
-        //if the current value - difference is greater than threshold than light is unnecessary
-        if(value - difference > threshold)
+        //If old value - new value > threshold + certain margin
+        if(difference > threshold + LIGHT_THRESHOLD_MARGIN)
             mqtt_send_light_message(false);
     }
 }
@@ -94,7 +112,7 @@ static void reached_moisture_threshold(uint16_t value, uint16_t threshold)
 {
     printf("Watering...\n");
     gpio_set_level(RELAY_GPIO, 1);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
     gpio_set_level(RELAY_GPIO, 0);
     //TODO: create software timer for this
     vTaskDelay(10000 / portTICK_PERIOD_MS);
@@ -112,10 +130,14 @@ void app_main()
     register_on_wifi_connection_reset(&on_wifi_connection_reset);
     register_on_wifi_receive_credentials_cb(&on_wifi_receive_credentials);
     register_on_wifi_sta_start_cb(&on_wifi_sta_start);
+    register_on_wifi_ap_start_cb(&on_wifi_ap_start);
 
     //Register mqtt callbacks
     register_received_light_threshold_cb(&received_light_threshold);
     register_received_moisture_threshold_cb(&received_moisture_threshold);
+
+    //Register http callbacks
+    register_on_receive_credentials_cb(&received_credentials);
 
     //Register measurement callbacks
     register_reached_light_threshold_cb(&reached_light_threshold);

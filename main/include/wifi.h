@@ -20,6 +20,7 @@ typedef void (*wifi_cb_t)(void* data);
 typedef struct
 {
     wifi_cb_t on_sta_start;
+    wifi_cb_t on_ap_start;
     wifi_cb_t on_connect;
     wifi_cb_t on_disconnect;
     wifi_cb_t on_receive_credentials;
@@ -28,9 +29,12 @@ typedef struct
 
 void initialize_wifi(void);
 void register_on_wifi_sta_start_cb(wifi_cb_t callback);
+void register_on_wifi_ap_start_cb(wifi_cb_t callback);
 void register_on_wifi_connect_cb(wifi_cb_t callback);
 void register_on_wifi_disconnect_cb(wifi_cb_t callback);
 void register_on_wifi_receive_credentials_cb(wifi_cb_t callback);
 void register_on_wifi_connection_reset(wifi_cb_t callback);
+
+void wifi_received_credentials(void);
 
 #endif //NETWORKING_H
